@@ -18,14 +18,14 @@ MyBooking — учебная микросервисная система бро�
 
 ```mermaid
 flowchart LR
-  Client[Client / Postman] -->|HTTP + Bearer JWT| GW[api-gateway :8080]
+  Client[Client / Postman] -->|"HTTP + Bearer JWT"| GW["api-gateway\n:8080"]
 
-  GW -->|/api/hotels/**| HS[hotel-service :8081]
-  GW -->|/api/bookings/**<br/>/api/user/**| BS[booking-service :8082]
+  GW -->|"/api/hotels/**"| HS["hotel-service\n:8081"]
+  GW -->|"/api/bookings/**, /api/user/**"| BS["booking-service\n:8082"]
 
-  BS -->|hold / confirm / release<br/>HTTP (base-url)| HS
+  BS -->|"hold / confirm / release\nHTTP"| HS
 
-  HS -->|register| ES[eureka-server :8761]
+  HS -->|register| ES["eureka-server\n:8761"]
   BS -->|register| ES
   GW -->|discover| ES
 ```
