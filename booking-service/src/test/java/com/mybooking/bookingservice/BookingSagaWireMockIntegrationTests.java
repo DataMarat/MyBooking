@@ -23,13 +23,12 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Saga Success: hold=200, confirm=200 => booking CONFIRMED.
+ * Интеграционные тесты саги booking-service с использованием WireMock вместо реального hotel-service.
  *
- * <p>Проверяем:
+ * <p>Покрываем два сценария:
  * <ul>
- *   <li>статус CONFIRMED</li>
- *   <li>requestId в Booking == X-Request-Id</li>
- *   <li>прокидывание X-Request-Id в hotel-service (WireMock verify)</li>
+ *   <li>Success: hold=200, confirm=200 → booking CONFIRMED</li>
+ *   <li>Failure: hold=409/500 → booking CANCELLED + release best-effort</li>
  * </ul>
  * </p>
  */
@@ -67,7 +66,7 @@ class BookingSagaWireMockIntegrationTests {
         r.add("hotel.retries", () -> "1");
         r.add("security.jwt.secret", () -> TEST_JWT_SECRET);
 
-        // если Eureka мешает тестам — безопасно отключить именно в тестах
+        // чтобы тесты были полностью автономными
         r.add("eureka.client.enabled", () -> "false");
         r.add("eureka.client.register-with-eureka", () -> "false");
         r.add("eureka.client.fetch-registry", () -> "false");
@@ -84,24 +83,8 @@ class BookingSagaWireMockIntegrationTests {
         stubFor(post(urlPathEqualTo("/api/rooms/confirm"))
                 .willReturn(aResponse().withStatus(200)));
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-Request-Id", requestId);
-        headers.setBearerAuth(JwtTestTokens.hmacToken(TEST_JWT_SECRET, "1", "USER"));
-
-        Map<String, String> body = Map.of(
-                "roomId", "1",
-                "startDate", LocalDate.now().plusDays(1).toString(),
-                "endDate", LocalDate.now().plusDays(2).toString()
-        );
-
         // Act (When)
-        ResponseEntity<Booking> resp = rest.exchange(
-                "/api/bookings",
-                HttpMethod.POST,
-                new HttpEntity<>(body, headers),
-                Booking.class
-        );
+        ResponseEntity<Booking> resp = createBooking(requestId);
 
         // Assert (Then)
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -114,5 +97,57 @@ class BookingSagaWireMockIntegrationTests {
 
         verify(postRequestedFor(urlPathEqualTo("/api/rooms/confirm"))
                 .withHeader("X-Request-Id", equalTo(requestId)));
+    }
+
+    @Test
+    void sagaFailure_shouldCancelBooking_andReleaseBestEffort_andPropagateRequestId() {
+        // Arrange (Given)
+        String requestId = UUID.randomUUID().toString();
+
+        // hold падает
+        stubFor(post(urlPathEqualTo("/api/rooms/1/hold"))
+                .willReturn(aResponse().withStatus(409)));
+
+        // best-effort release: допускается и 200, и 404. Тут ставим 200 для простоты.
+        stubFor(post(urlPathEqualTo("/api/rooms/release"))
+                .willReturn(aResponse().withStatus(200)));
+
+        // Act (When)
+        ResponseEntity<Booking> resp = createBooking(requestId);
+
+        // Assert (Then)
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).isNotNull();
+        assertThat(resp.getBody().getStatus()).isEqualTo(Booking.Status.CANCELLED);
+        assertThat(resp.getBody().getRequestId()).isEqualTo(requestId);
+
+        verify(postRequestedFor(urlPathEqualTo("/api/rooms/1/hold"))
+                .withHeader("X-Request-Id", equalTo(requestId)));
+
+        verify(postRequestedFor(urlPathEqualTo("/api/rooms/release"))
+                .withHeader("X-Request-Id", equalTo(requestId)));
+
+        // confirm не должен вызываться если hold не прошёл
+        verify(0, postRequestedFor(urlPathEqualTo("/api/rooms/confirm")));
+    }
+
+    private ResponseEntity<Booking> createBooking(String requestId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Request-Id", requestId);
+        headers.setBearerAuth(JwtTestTokens.hmacToken(TEST_JWT_SECRET, "1", "USER"));
+
+        Map<String, String> body = Map.of(
+                "roomId", "1",
+                "startDate", LocalDate.now().plusDays(1).toString(),
+                "endDate", LocalDate.now().plusDays(2).toString()
+        );
+
+        return rest.exchange(
+                "/api/bookings",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                Booking.class
+        );
     }
 }
