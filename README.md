@@ -1,80 +1,72 @@
 # MyBooking
 
 MyBooking — учебная микросервисная система бронирования отелей на **Spring Boot 3.x** и **Java 17**.  
-Проект демонстрирует построение распределённого backend‑приложения с **Service Discovery (Eureka)**, **API Gateway**, **JWT-аутентификацией** и согласованным управлением состоянием между сервисами (сага hold/confirm/release).
+Проект демонстрирует: **Service Discovery (Eureka)**, **API Gateway (Spring Cloud Gateway)**, **JWT-аутентификацию**, а также **согласованное управление состоянием** бронирования между сервисами через двухшаговую сагу **hold → confirm / release**.
 
 ---
 
-## 1. Архитектура
+## Архитектура
 
-Система состоит из следующих микросервисов:
+### Компоненты
 
-- **Eureka Server**  
-  Сервис регистрации и обнаружения сервисов (Service Discovery).
+- **eureka-server** — Service Registry (Eureka).
+- **api-gateway** — единая точка входа для клиентских запросов (часть маршрутов).
+- **hotel-service** — отели/номера, статистика, операции удержания доступности номера (hold/confirm/release).
+- **booking-service** — регистрация/аутентификация, CRUD бронирований, оркестрация саги с hotel-service.
 
-- **API Gateway**  
-  Единая точка входа. Отвечает за маршрутизацию HTTP‑запросов к backend‑сервисам.
+### Диаграмма взаимодействий
 
-- **Hotel Service**  
-  Управление отелями и номерами. Отвечает за доступность номеров, рекомендации и операции резервирования слотов (hold/confirm/release).
+```mermaid
+flowchart LR
+  Client[Client / Postman] -->|HTTP + Bearer JWT| GW[api-gateway :8080]
 
-- **Booking Service**  
-  Регистрация и аутентификация пользователей, создание и управление бронированиями, а также координация с `hotel-service` (сага).
+  GW -->|/api/hotels/**| HS[hotel-service :8081]
+  GW -->|/api/bookings/**<br/>/api/user/**| BS[booking-service :8082]
 
----
+  BS -->|hold / confirm / release<br/>HTTP (base-url)| HS
 
-## 2. Используемые технологии
-
-- **Java 17**
-- **Spring Boot 3.x**
-- **Spring Cloud**: Eureka, Gateway
-- **Spring Security**: JWT, OAuth2 Resource Server
-- **Spring Data JPA**
-- **H2** (in-memory для разработки)
-- **Maven** (multi-module)
-- **WireMock** (интеграционные тесты без поднятия зависимого сервиса)
-
----
-
-## 3. Структура репозитория
-
-```
-MyBooking/
-  api-gateway/
-  booking-service/
-  hotel-service/
-  eureka-server/
-  pom.xml
+  HS -->|register| ES[eureka-server :8761]
+  BS -->|register| ES
+  GW -->|discover| ES
 ```
 
----
+**Важно про маршрутизацию:** в текущей конфигурации Gateway публикует только:
+- `/api/hotels/**` → `hotel-service`
+- `/api/bookings/**`, `/api/user/**` → `booking-service`
 
-## 4. Порты и окружение
-
-Порты по умолчанию:
-
-- **Eureka Server** — `8761`
-- **API Gateway** — `8080`
-- **Hotel Service** — `8081`
-- **Booking Service** — `8082`
-
-В dev‑режиме бизнес‑сервисы используют **H2 in-memory**, поэтому данные сбрасываются при перезапуске.
+Эндпойнты `hotel-service` для номеров (`/api/rooms/**`) и статистики (`/api/stats`) доступны **напрямую** через `http://localhost:8081`.
 
 ---
 
-## 5. Запуск проекта
+## Порты и окружение
 
-### 5.1 Требования
-- Java 17
+| Сервис | Порт |
+|---|---:|
+| eureka-server | 8761 |
+| api-gateway | 8080 |
+| hotel-service | 8081 |
+| booking-service | 8082 |
+
+Все сервисы используют **H2 in-memory** в dev-режиме — данные сбрасываются при перезапуске.
+
+---
+
+## Быстрый старт
+
+### Требования
+
+- Java 17+
 - Maven или Maven Wrapper
 
-### 5.2 Полная сборка
+### Сборка
 
 ```bash
 ./mvnw clean package
 ```
 
-### 5.3 Запуск сервисов (в отдельных терминалах)
+### Запуск сервисов
+
+Запускайте в отдельных терминалах (или используйте `run-all.ps1` на Windows):
 
 ```bash
 ./mvnw -pl eureka-server spring-boot:run
@@ -83,60 +75,64 @@ MyBooking/
 ./mvnw -pl api-gateway spring-boot:run
 ```
 
-### 5.4 Проверка работоспособности
+### Smoke-check
 
 - Eureka UI: `http://localhost:8761`
-- Пример actuator health:
-  - `GET http://localhost:8082/actuator/health`
+- Health:
+  - `GET http://localhost:8080/actuator/health`
   - `GET http://localhost:8081/actuator/health`
+  - `GET http://localhost:8082/actuator/health`
 
 ---
 
-## 6. API Gateway
+## Безопасность
 
-Gateway маршрутизирует запросы:
+### JWT
 
-- `/api/hotels/**` → **hotel-service**
-- `/api/bookings/**` → **booking-service**
+Аутентификация реализована в `booking-service` и используется как Bearer JWT:
 
-Внутренние эндпойнты `hotel-service` (например confirm/release), которые предназначены для взаимодействия сервис↔сервис, через Gateway не публикуются (в зависимости от конфигурации маршрутов).
+- секрет для подписи: `security.jwt.secret` (в обоих сервисах одинаковый; dev-значение в `application.yml`)
+- срок действия токена: 1 час (см. реализацию генерации токена в `booking-service`)
+- авторизация основана на `scope` (`USER` / `ADMIN`) и Spring Security authorities (`SCOPE_USER`, `SCOPE_ADMIN`)
 
----
+### Заголовок Authorization
 
-## 7. Сквозная корреляция: `X-Request-Id` + MDC
-
-Для трассировки запросов используется заголовок **`X-Request-Id`**:
-
-- Клиент может передать `X-Request-Id` самостоятельно.
-- Если заголовка нет, его может сгенерировать `api-gateway` и пробросить дальше.
-- `booking-service` кладёт значение в **MDC**, использует его в логах и сохраняет как `requestId` внутри бронирования.
-- При исходящих вызовах `booking-service → hotel-service` заголовок **обязательно прокидывается**.
-
-Это позволяет связывать:
-- входящий HTTP‑запрос,
-- запись в БД по бронированию,
-- все исходящие вызовы в `hotel-service`,
-- логи всех сервисов.
+```
+Authorization: Bearer <access_token>
+```
 
 ---
 
-## 8. Аутентификация и авторизация (JWT)
+## API
 
-В системе реализована JWT‑аутентификация:
+Ниже приведены **фактические** пути, соответствующие контроллерам проекта.
 
-- Пользователь может **зарегистрироваться**, указав логин/пароль.
-- После успешной регистрации или аутентификации возвращается **JWT access token**.
-- Токен содержит идентификатор пользователя, логин и роль/scope.
-- Срок жизни токена — **1 час**.
+### 1) Аутентификация и пользователи (booking-service, через Gateway)
 
-### 8.1 Эндпойнты пользователя (booking-service)
+База: `http://localhost:8080`
 
-> Реальные пути см. в контроллерах `booking-service`. Ниже — типовой интерфейс из текущей реализации.
+#### Регистрация
+`POST /api/user/register`
 
-- `POST /api/user/register`
-- `POST /api/user/auth`
+```json
+{
+  "username": "user1",
+  "password": "password",
+  "admin": false
+}
+```
 
-Пример тела запроса (register/auth):
+Ответ:
+
+```json
+{
+  "access_token": "…",
+  "token_type": "Bearer"
+}
+```
+
+#### Аутентификация
+`POST /api/user/auth`
 
 ```json
 {
@@ -145,162 +141,147 @@ Gateway маршрутизирует запросы:
 }
 ```
 
-Ответ: JWT токен (строка или JSON-обёртка — зависит от реализации контроллера).
+### 2) Бронирования (booking-service, через Gateway)
 
-### 8.2 Использование токена
+База: `http://localhost:8080`
 
-Для защищённых методов передавайте заголовок:
+#### Создать бронирование (USER)
+`POST /api/bookings`
 
+Тело:
+
+```json
+{
+  "roomId": "1",
+  "startDate": "2026-01-10",
+  "endDate": "2026-01-12"
+}
 ```
-Authorization: Bearer <token>
-```
 
----
+#### Мои бронирования (USER)
+`GET /api/bookings`
 
-## 9. Hotel Service API
+#### Подборка рекомендаций номеров (USER)
+`GET /api/bookings/suggestions`
 
-### 9.1 Отели
+> Возвращает список рекомендуемых номеров, используемых для выбора (сортировка по загруженности / доступности определяется реализацией сервисного слоя).
 
-База: `/api/hotels`
+#### Все бронирования (ADMIN)
+`GET /api/bookings/all`
 
-- `GET /api/hotels` — список отелей (обычно с пагинацией через `page/size`)
-- `GET /api/hotels/{id}` — отель по id
+### 3) Администрирование пользователей (booking-service, напрямую)
+
+База: `http://localhost:8082`
+
+> Эти эндпойнты не маршрутизируются через Gateway в текущей конфигурации.
+
+- `GET /api/admin/users` (ADMIN)
+- `GET /api/admin/users/{id}` (ADMIN)
+- `PUT /api/admin/users/{id}` (ADMIN)
+- `DELETE /api/admin/users/{id}` (ADMIN)
+
+### 4) Отели (hotel-service, через Gateway)
+
+База: `http://localhost:8080`
+
+- `GET /api/hotels` — пагинированный список (DTO без rooms)
+- `GET /api/hotels/{id}` — детальная карточка (DTO с rooms)
 - `POST /api/hotels` — создать/обновить
 - `DELETE /api/hotels/{id}` — удалить
 
-### 9.2 Номера
+Пример пагинации:
 
-База: `/api/rooms`
+`GET /api/hotels?page=0&size=10`
 
-- `GET /api/rooms` — список номеров
-- `GET /api/rooms/{id}` — номер по id
-- `POST /api/rooms` — создать/обновить
-- `DELETE /api/rooms/{id}` — удалить
+### 5) Номера и статистика (hotel-service, напрямую)
 
-Дополнительно:
+База: `http://localhost:8081`
 
-- Поиск свободных номеров по датам (конкретный эндпойнт зависит от реализации)
-- `GET /api/rooms/recommend` — рекомендации номеров (сортировка по наименьшей загруженности)
+#### Номера (CRUD)
+- `GET /api/rooms` — пагинация
+- `GET /api/rooms/{id}`
+- `POST /api/rooms`
+- `DELETE /api/rooms/{id}`
 
-> Для каждого номера ведётся счётчик бронирований `timesBooked`, который используется в рекомендациях.
+Пример пагинации:
 
-### 9.3 Locking API (для саги бронирования)
+`GET /api/rooms?page=0&size=20`
 
-Эти эндпойнты вызываются из `booking-service` (сервис↔сервис):
+#### Статистика по номерному фонду
+`GET /api/stats`
 
-- `POST /api/rooms/{roomId}/hold?requestId&startDate&endDate`
-- `POST /api/rooms/confirm?requestId`
-- `POST /api/rooms/release?requestId`
+Ответ:
 
----
+```json
+{
+  "totalRooms": 32,
+  "availableRooms": 32,
+  "totalBookings": 0
+}
+```
 
-## 10. Booking Service API
+#### Endpoints саги (service↔service)
 
-База: `/api/bookings` (как правило, требует Bearer JWT)
-
-- `POST /api/bookings` — создать бронирование (запускает сагу)
-- `GET /api/bookings` — история бронирований текущего пользователя
-- `DELETE /api/bookings/{id}` или `POST /api/bookings/{id}/cancel` — отмена (точный путь зависит от контроллера)
-- Админские выборки (если включены): например `GET /api/bookings/all`
-
-> Поддержка «автоматического выбора номера» реализуется через выбор доступного/рекомендованного номера на стороне `hotel-service` или внутри `booking-service` (в зависимости от реализации).
-
----
-
-## 11. Сага бронирования: согласованность данных между сервисами
-
-Каждое бронирование проходит жизненный цикл:
-`PENDING → CONFIRMED` или `PENDING → CANCELLED`.
-
-### 11.1 Happy path
-
-При `POST /api/bookings`:
-
-1. `booking-service` вызывает в `hotel-service`:
-  - `POST /api/rooms/{roomId}/hold?requestId&startDate&endDate`
-2. Создаётся бронирование со статусом `PENDING`, при этом:
-  - `requestId` бронирования равен `X-Request-Id` входящего запроса
-3. Затем `booking-service` вызывает:
-  - `POST /api/rooms/confirm?requestId`
-4. При успехе: бронирование переводится `PENDING → CONFIRMED`.
-
-### 11.2 Ошибка и компенсация (best-effort release)
-
-Если `hold` или `confirm` завершились ошибкой (например `409/500`):
-
-- бронирование переводится `PENDING → CANCELLED`
-- выполняется компенсация:
-  - `POST /api/rooms/release?requestId`
-
-**Best-effort правило:** если `release` возвращает `404`, это не считается фатальной ошибкой (не должно «ронять» сценарий).  
-Это важно для идемпотентности/повторов и ситуаций, когда lock уже отсутствует.
+- `POST /api/rooms/{roomId}/hold?requestId=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+- `POST /api/rooms/confirm?requestId=...`
+- `POST /api/rooms/release?requestId=...`
 
 ---
 
-## 12. Идемпотентность
+## Сага бронирования (booking-service ↔ hotel-service)
 
-Для защиты от повторной доставки запросов используется уникальный `requestId`.  
-Повторный запрос с тем же `requestId` не должен приводить к созданию дубликатов.
+### Поток “успех”
 
-На практике `requestId` в бронировании привязывается к `X-Request-Id`, что удобно:
-- клиент может ретраить запрос с тем же `X-Request-Id`,
-- сервис сможет корректно распознать повтор.
+1. `booking-service` вызывает `hotel-service`:
+  - `POST /api/rooms/{roomId}/hold` (с `requestId`, `startDate`, `endDate`)
+2. `booking-service` создаёт `Booking` со статусом `PENDING`.
+3. `booking-service` вызывает:
+  - `POST /api/rooms/confirm` (с тем же `requestId`)
+4. При успехе `Booking` переводится в `CONFIRMED`.
 
----
+### Ошибка и компенсация
 
-## 13. Обработка ошибок (RestControllerAdvice)
+Если `hold` или `confirm` завершается ошибкой (например, конфликт дат / 409 или ошибка сервиса):
 
-В `booking-service` используется централизованная обработка ошибок через `@RestControllerAdvice`:
-
-- единый формат ошибок (HTTP статус + сообщение + path/детали — зависит от реализации),
-- обработка:
-  - ошибок валидации,
-  - некорректных параметров,
-  - not found,
-  - security/доступа,
-  - ошибок интеграции с `hotel-service`.
-
-Это снижает дублирование try/catch в контроллерах и делает API предсказуемым.
+- бронирование переводится в `CANCELLED`
+- выполняется best-effort компенсация:
+  - `POST /api/rooms/release?requestId=...`
 
 ---
 
-## 14. Swagger / OpenAPI
+## Сквозная корреляция запросов (X-Request-Id + MDC)
 
-Если в конфигурации включён springdoc, документация доступна:
+Для трассировки действий в рамках одного пользовательского запроса используется заголовок:
 
-- Booking Service: `/swagger-ui/index.html`
-- Hotel Service: `/swagger-ui/index.html` 
+- `X-Request-Id`
+
+`booking-service` кладёт значение в MDC как `traceId` и печатает его в логах (см. `logging.pattern.console`), что позволяет связывать:
+- входящий HTTP-запрос,
+- вызовы в `hotel-service`,
+- изменения статуса бронирования,
+- компенсационные действия.
 
 ---
 
-## 15. Test data (CSV предзаполнение)
+## Предзаполнение данных (Test data)
 
-В проекте используется предзаполнение данных из CSV‑файлов. Данные загружаются **автоматически при старте приложения**, но **только если таблицы пустые**.
+Данные загружаются из CSV **при старте сервиса** (если таблицы пустые).
 
-### 15.1 Hotel Service
+### hotel-service
 
-CSV‑файлы:
-- `hotel-service/src/main/resources/data/hotels.csv`
-- `hotel-service/src/main/resources/data/rooms.csv`
-
-Предзаполнение:
-- Отели: **8 записей**
-- Номера: **32 записи**
+Файлы:
+- `hotel-service/src/main/resources/data/hotels.csv` — 8 записей
+- `hotel-service/src/main/resources/data/rooms.csv` — 32 записи
 
 Назначение:
-- разные значения `timesBooked` для демонстрации рекомендаций,
-- часть номеров может иметь `available=false` для демонстрации фильтрации,
-- данные удобны для проверки эндпойнтов `/api/hotels`, `/api/rooms`, `/api/rooms/recommend`.
+- демонстрация списка отелей/номеров;
+- наличие `timesBooked` для демонстрации рекомендаций/статистики.
 
-### 15.2 Booking Service
+### booking-service
 
-CSV‑файлы:
-- `booking-service/src/main/resources/data/users.csv`
-- `booking-service/src/main/resources/data/bookings.csv`
-
-Предзаполнение:
-- Пользователи: **8 записей**
-- Бронирования: **24 записи**
+Файлы:
+- `booking-service/src/main/resources/data/users.csv` — 8 записей
+- `booking-service/src/main/resources/data/bookings.csv` — 24 записи
 
 Тестовые пользователи:
 
@@ -315,36 +296,29 @@ CSV‑файлы:
 | user5 | password | USER |
 | qa | password | USER |
 
-Примечание:
-- Пароли в CSV хранятся в открытом виде и **хэшируются (BCrypt) при загрузке**.
-- В БД хранится только `passwordHash`.
+---
 
-Назначение bookings.csv:
-- присутствуют бронирования во всех состояниях: `PENDING`, `CONFIRMED`, `CANCELLED`,
-- удобно тестировать:
-  - сагу (успех/ошибка/компенсация),
-  - историю бронирований,
-  - идемпотентность по `requestId`.
+## Swagger / OpenAPI
 
-### 15.3 Быстрая проверка после запуска
+Агрегированная Swagger UI в Gateway:
 
-```bash
-GET /api/hotels?page=0&size=10
-GET /api/rooms/recommend
-GET /api/bookings   # для авторизованного пользователя
-```
+- `http://localhost:8080/swagger-ui.html`
+
+Gateway проксирует OpenAPI:
+- booking-service docs: `/api/bookings/v3/api-docs`
+- hotel-service docs: `/api/hotels/v3/api-docs`
 
 ---
 
-## 16. Тестирование
+## Тестирование
 
-### 16.1 Запуск всех тестов
+### Запуск всех тестов
 
 ```bash
 ./mvnw test
 ```
 
-### 16.2 Запуск тестов конкретного модуля
+### Запуск тестов модуля
 
 ```bash
 ./mvnw -pl booking-service test
@@ -352,43 +326,74 @@ GET /api/bookings   # для авторизованного пользовате
 ./mvnw -pl api-gateway test
 ```
 
-### 16.3 Интеграционные тесты саги (booking-service + WireMock)
+### Интеграционные тесты саги (WireMock)
 
-В `booking-service` есть интеграционные тесты саги, которые:
-- поднимают контекст через `@SpringBootTest(webEnvironment = RANDOM_PORT)`;
-- **не поднимают реальный `hotel-service`**;
-- используют **WireMock** на случайном порту;
-- переопределяют `hotel.base-url` через `@DynamicPropertySource`;
-- делают реальный HTTP вызов `POST /api/bookings`;
-- проверяют прокидывание `X-Request-Id` в `hold/confirm/release`.
-
-Сценарии:
-- **Saga Success**: `hold=200`, `confirm=200` → `CONFIRMED`
-- **Saga Failure**: `hold=409/500` → `CANCELLED` + `release` best-effort (в т.ч. допустим `404`)
+В `booking-service` используются интеграционные тесты, которые поднимают Spring-контекст и подменяют `hotel-service` через WireMock (успех/ошибка и компенсация).
 
 ---
 
-## 17. Примечание по идентификаторам (H2 + Hibernate)
+## ADR (Architecture Decision Records)
 
-В сущностях используется `@GeneratedValue(strategy = GenerationType.IDENTITY)`.  
-При импорте CSV с явными `id` возможны особенности поведения в зависимости от диалекта/Hibernate.
+Ниже перечислены ключевые архитектурные решения проекта в формате ADR.
 
-Надёжный production‑подход:
-- не задавать `id` вручную,
-- строить связи через сгенерированные `id` или естественные ключи.
+### ADR-001 — Микросервисная архитектура с Service Discovery (Eureka) и API Gateway
+
+**Статус:** Accepted
+
+**Контекст:** Требуется продемонстрировать распределённую архитектуру с маршрутизацией запросов и динамическим обнаружением сервисов.
+
+**Решение:**
+- Используется Eureka как реестр сервисов.
+- Используется Spring Cloud Gateway как edge-сервис, маршрутизирующий часть публичных API.
+
+**Последствия:**
+- Сервисы регистрируются в Eureka и могут вызываться по `lb://<service-id>`.
+- Gateway является единой точкой входа для части клиентских маршрутов.
+- В текущей конфигурации через Gateway публикуются только `/api/hotels/**`, `/api/bookings/**`, `/api/user/**`.
+
+### ADR-002 — JWT (HMAC shared secret) и проверка токена на сервисах
+
+**Статус:** Accepted
+
+**Контекст:** Нужна аутентификация и разграничение прав (USER/ADMIN) без внешнего Identity Provider.
+
+**Решение:**
+- `booking-service` выпускает JWT.
+- `booking-service` и `hotel-service` валидируют JWT как Resource Server с общим секретом `security.jwt.secret`.
+
+**Последствия:**
+- Нет зависимости от внешнего IdP.
+- Требуется синхронизация секрета между сервисами (в dev хранится в `application.yml`; для production — в секретах окружения).
+
+### ADR-003 — Согласованность данных через сага hold/confirm/release и корреляция requestId
+
+**Статус:** Accepted
+
+**Контекст:** Бронирование требует проверки доступности номера и согласованного изменения состояния между двумя сервисами без распределённых транзакций.
+
+**Решение:**
+- Реализован двухшаговый протокол:
+  - `hold` — временное удержание,
+  - `confirm` — подтверждение,
+  - `release` — компенсация.
+- Во все шаги передаётся `requestId`, используемый для идемпотентности и повторной доставки.
+
+**Последствия:**
+- Устойчивость к сбоям удалённого сервиса достигается компенсацией.
+- Повторные вызовы с тем же `requestId` не должны приводить к дублированию удержаний.
+
+### ADR-004 — Сквозная трассировка через X-Request-Id и MDC
+
+**Статус:** Accepted
+
+**Контекст:** Нужна наблюдаемость цепочки действий (создание брони → hold/confirm/release) и сопоставление логов.
+
+**Решение:**
+- Вводится заголовок `X-Request-Id`.
+- Значение пишется в MDC как `traceId` и выводится в логах.
+
+**Последствия:**
+- Упрощается диагностика саги и интеграционных ошибок.
+- Клиент может повторять запросы, сохраняя `X-Request-Id`.
 
 ---
-
-## 18. Сборка
-
-Полная сборка:
-
-```bash
-./mvnw clean package
-```
-
-Сборка отдельного модуля:
-
-```bash
-./mvnw -pl booking-service -am clean package
-```
