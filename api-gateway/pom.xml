@@ -16,91 +16,89 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <!-- Координаты модуля (artifactId используется другими сервисами при обращении через Eureka по имени) -->
-    <artifactId>hotel-service</artifactId>
-    <name>hotel-service</name>
-    <description>Hotel Management Service for MyBooking</description>
+    <!-- Координаты модуля (имя сервиса в Eureka: api-gateway) -->
+    <artifactId>api-gateway</artifactId>
+    <name>api-gateway</name>
+    <description>API Gateway for MyBooking (Spring Cloud Gateway)</description>
     <packaging>jar</packaging>
 
     <dependencies>
-        <!-- Веб-слой: REST контроллеры, Jackson, встроенный Tomcat -->
+        <!-- Реактивный стек (Gateway построен на WebFlux) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
-        <!-- Доступ к данным через JPA/Hibernate -->
+        <!-- Spring Cloud Gateway -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
 
-        <!-- Базовая безопасность (фильтры, авторизация/аутентификация) -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-oauth2-jose</artifactId>
-        </dependency>
-
-        <!-- Resource Server для обработки JWT (bearer-токены) -->
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-oauth2-resource-server</artifactId>
-        </dependency>
-
-        <!-- In-memory база данных для разработки/тестов -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-        </dependency>
-
-        <!-- Клиент Eureka: регистрация сервиса и discovery -->
+        <!-- Eureka client: регистрация gateway и маршрутизация через lb:// -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
 
-        <!-- Actuator: health/metrics endpoints (важно для мониторинга и readiness/liveness) -->
+        <!-- Actuator: health/metrics endpoints -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Тестирование (JUnit, Spring Test и т.п.) -->
+        <!-- Безопасность (JWT Resource Server) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-resource-server</artifactId>
         </dependency>
 
-        <!-- JWT (нужно для тестов HotelHttpIT) -->
+        <!-- JWT (для тестов/утилит генерации токенов) -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
             <version>0.11.5</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-impl</artifactId>
             <version>0.11.5</version>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-jackson</artifactId>
             <version>0.11.5</version>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
 
-        <!-- Swagger/OpenAPI UI для документации REST API -->
+        <!-- Swagger/OpenAPI UI (агрегатор ссылок на /v3/api-docs downstream сервисов) -->
         <dependency>
             <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
             <version>2.5.0</version>
+        </dependency>
+
+        <!-- Тестирование -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Реактивный controller-server (Netty) для WebFlux/Gateway -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-reactor-netty</artifactId>
         </dependency>
     </dependencies>
 

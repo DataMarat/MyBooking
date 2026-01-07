@@ -1,0 +1,9 @@
+id,username,password,role
+1,admin,admin,ADMIN
+2,user1,password,USER
+3,user2,password,USER
+4,user3,password,USER
+5,user4,password,USER
+6,user5,password,USER
+7,manager,password,ADMIN
+8,qa,password,USER

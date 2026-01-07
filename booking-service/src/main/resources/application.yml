@@ -1,26 +1,22 @@
-# Конфигурация Hotel Service (микросервис управления отелями)
-
 server:
-  port: 8081
+  port: 8082
 
 spring:
   application:
-    name: hotel-service
-
+    name: booking-service
   datasource:
-    url: jdbc:h2:mem:hotel;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:mem:booking;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driverClassName: org.h2.Driver
     username: sa
     password:
-
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
-
   h2:
     console:
       enabled: true
+      path: /h2-console
 
 eureka:
   client:
@@ -37,8 +33,17 @@ security:
   jwt:
     secret: development-secret-need-to-change
 
+hotel:
+#  base-url: http://hotel-service
+  base-url: "http://localhost:8081"
+  timeout-ms: 2000
+  retries: 2
+
 logging:
   level:
     org.springframework.security: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{traceId}] %c{1.}: %m%n"
+
+predicates:
+  - Path=/api/bookings/**, /api/auth/**, /api/user/**

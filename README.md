@@ -1,98 +1,223 @@
-# hotel-service
+# MyBooking
 
-Минималистичный микросервис на Spring Boot 3 (Java 17).
+MyBooking — это микросервисная система бронирования отелей, реализованная на базе Spring Boot и Spring Cloud.
+Проект демонстрирует построение распределённого backend-приложения с сервис-дискавери, API Gateway,
+JWT-аутентификацией и согласованным управлением состоянием между сервисами.
 
-## Что есть сейчас
-- `GET /api/hotels` — список из 5 отелей (hardcoded).
-- Логирование (Logback по умолчанию).
-- Тест, проверяющий, что отелей ровно 5.
-- Swagger/OpenAPI UI.
+## Архитектура
 
-## Структура проекта
+Система состоит из следующих микросервисов:
+
+- **Eureka Server**  
+  Сервис регистрации и обнаружения сервисов (Service Discovery).
+
+- **API Gateway**  
+  Единая точка входа в систему. Отвечает за маршрутизацию HTTP-запросов к backend-сервисам.
+
+- **Hotel Service**  
+  Сервис управления отелями и номерами. Отвечает за доступность номеров,
+  рекомендации и операции подтверждения/освобождения слотов.
+
+- **Booking Service**  
+  Сервис бронирований. Реализует регистрацию и аутентификацию пользователей,
+  создание и управление бронированиями, а также координацию с Hotel Service.
+
+## Используемые технологии
+
+- Java 17
+- Spring Boot 3.x
+- Spring Cloud (Eureka, Gateway)
+- Spring Security (JWT, OAuth2 Resource Server)
+- Spring Data JPA
+- H2 (in-memory database для разработки)
+- Maven (multi-module)
+
+## Структура репозитория
+
 ```
 MyBooking/
-├── pom.xml # корневой pom (multi-module)
-│
-└── hotel-service/ # текущий микросервис
-├── pom.xml # pom модуля
-├── README.md # документация
-├── src/
-│ ├── main/
-│ │ ├── java/
-│ │ │ └── com/
-│ │ │ └──── mybooking/
-│ │ │ └──── hotelservice/
-    │   │   ├── Hotel.java
-    │   │   ├── HotelRepository.java
-    │   │   ├── HotelService.java
-    │   │   ├── HotelServiceImpl.java
-    │   │   ├── HotelController.java
-    │   │   └── HotelServiceApplication.java 
-│ │ └── resources/
-│ │ └──── application.yml
-│ │
-│ └── test/
-│ └──── java/
-│ └────── com/
-│ └──────── mybooking/
-│ └──────────── hotelservice/
-│ └──────────────── HotelServiceApplicationTests.java
-│
-└── target/ # сборочные артефакты (генерируется автоматически)
+  api-gateway/
+  booking-service/
+  hotel-service/
+  eureka-server/
+  pom.xml
 ```
-## Быстрый старт
+
+## Основной функционал
+
+### Регистрация и аутентификация
+
+В системе реализована JWT-аутентификация:
+
+- Пользователь может зарегистрироваться, указав логин и пароль.
+- После успешной регистрации или аутентификации сервис возвращает JWT-токен.
+- Токен содержит идентификатор пользователя, логин и роль.
+- Срок жизни токена — 1 час.
+
+### Управление отелями и номерами (Hotel Service)
+
+- Создание и просмотр отелей.
+- Создание и просмотр номеров.
+- Поиск свободных номеров по датам.
+- Получение списка рекомендованных номеров.
+
+Для каждого номера ведётся счётчик бронирований (`timesBooked`),
+который используется при формировании рекомендаций.
+
+### Бронирования (Booking Service)
+
+- Создание бронирования на указанный номер и период.
+- Поддержка автоматического выбора номера.
+- Просмотр истории бронирований текущего пользователя.
+- Отмена бронирования.
+
+Каждое бронирование проходит жизненный цикл:
+`PENDING → CONFIRMED` или `PENDING → CANCELLED`.
+
+### Согласованность данных между сервисами
+
+Для согласования состояния между Booking Service и Hotel Service используется
+сценарий с подтверждением и компенсацией:
+
+- При создании бронирования Booking Service запрашивает подтверждение доступности номера.
+- При успешном подтверждении бронирование фиксируется.
+- В случае ошибки или тайм-аута выполняется компенсация — освобождение номера.
+
+### Идемпотентность
+
+Для защиты от повторной доставки запросов используется уникальный `requestId`.
+Повторный запрос с тем же идентификатором не приводит к созданию дубликатов.
+
+## Запуск проекта
+
+### Требования
+- Java 17
+- Maven или Maven Wrapper
+
+### Последовательность запуска
+
+Рекомендуется запускать сервисы по отдельности:
 
 ```bash
-# из каталога модуля
-cd hotel-service
-
-# запустить приложение
-mvn spring-boot:run
+./mvnw -pl eureka-server spring-boot:run
+./mvnw -pl hotel-service spring-boot:run
+./mvnw -pl booking-service spring-boot:run
+./mvnw -pl api-gateway spring-boot:run
 ```
 
-Приложение слушает порт 8050.
+### Порты по умолчанию
 
-Полезные URL’ы
+- Eureka Server — `8761`
+- API Gateway — `8080`
+- Hotel Service — `8081`
+- Booking Service — `8082`
 
-API: http://localhost:8050/api/hotels
+## API Gateway
 
-Swagger UI: http://localhost:8050/swagger-ui
+Gateway маршрутизирует запросы:
 
-OpenAPI JSON: http://localhost:8050/v3/api-docs
+- `/api/hotels/**` → Hotel Service
+- `/api/bookings/**` → Booking Service
 
-Примеры запросов
+Внутренние эндпойнты Hotel Service (confirm/release) через Gateway не публикуются.
+
+## Test data
+
+В проекте используется предзаполнение данных из CSV-файлов. Данные загружаются **автоматически при старте приложения**, но **только если соответствующие таблицы базы данных пустые**. Это обеспечивает воспроизводимость тестов и удобство демонстрации функциональности без ручного ввода данных.
+
+---
+
+### Hotel Service
+
+**Расположение CSV-файлов:**
+- `hotel-service/src/main/resources/data/hotels.csv`
+- `hotel-service/src/main/resources/data/rooms.csv`
+
+**Предзаполняемые данные:**
+- Отели: **8 записей**
+- Номера: **32 записи**
+
+**Назначение данных:**
+- В `rooms.csv` заданы различные значения `timesBooked`, что позволяет наглядно продемонстрировать алгоритм рекомендаций номеров (сортировка по наименьшей загруженности).
+- Часть номеров имеет `available=false` для демонстрации фильтрации недоступных номеров.
+- Данные используются для проверки эндпоинтов `/api/hotels`, `/api/rooms`, `/api/rooms/recommend`.
+
+---
+
+### Booking Service
+
+**Расположение CSV-файлов:**
+- `booking-service/src/main/resources/data/users.csv`
+- `booking-service/src/main/resources/data/bookings.csv`
+
+**Предзаполняемые данные:**
+- Пользователи: **8 записей**
+- Бронирования: **24 записи**
+
+**Тестовые пользователи:**
+| Username  | Password  | Role  |
+|----------|-----------|-------|
+| admin    | admin     | ADMIN |
+| manager  | password  | ADMIN |
+| user1    | password  | USER  |
+| user2    | password  | USER  |
+| user3    | password  | USER  |
+| user4    | password  | USER  |
+| user5    | password  | USER  |
+| qa       | password  | USER  |
+
+> Пароли в CSV хранятся в открытом виде и **хэшируются (BCrypt) при загрузке данных**. В базе данных пароли сохраняются только в виде `passwordHash`.
+
+**Назначение данных:**
+- В `bookings.csv` присутствуют бронирования во всех состояниях: `PENDING`, `CONFIRMED`, `CANCELLED`.
+- Данные позволяют тестировать:
+  - сценарии саги (успех / ошибка / компенсация),
+  - историю бронирований пользователя,
+  - идемпотентность запросов по `requestId`.
+
+---
+
+### Быстрая проверка после запуска
+
+Примеры запросов:
 ```bash
-# Получить список отелей
-curl -s http://localhost:8050/api/hotels | jq .
+GET /api/hotels?page=0&size=10
+GET /api/rooms/recommend
+GET /api/bookings   # для авторизованного пользователя
 ```
 
-Ожидаемый ответ (пример):
-```json
-[
-  {"id":1,"name":"Cosmos Nevsky","address":"Russia, St. Petersburg, Nevsky Ave 171"},
-  {"id":2,"name":"Ibis Kazan Center","address":"Russia, Kazan, Pravo-Bulachnaya 43/1"},
-  {"id":3,"name":"Azimut Moscow Olympic","address":"Russia, Moscow, Olimpiyskiy Ave 18/1"},
-  {"id":4,"name":"Park Inn Sochi City","address":"Russia, Sochi, Gorkogo 56"},
-  {"id":5,"name":"Novotel Yekaterinburg","address":"Russia, Ekaterinburg, Engelsa 7"}
-]
-```
-# GET    http://localhost:8050/api/hotels
-# POST   http://localhost:8050/api/hotels         {"name":"Hotel Test","address":"City, Street 1"}
-# PUT    http://localhost:8050/api/hotels/1       {"name":"Updated","address":"Updated"}
-# DELETE http://localhost:8050/api/hotels/1
+---
 
-Тесты
+### Примечание по идентификаторам (H2 + Hibernate)
+
+В сущностях используется генерация идентификаторов `@GeneratedValue(strategy = GenerationType.IDENTITY)`. На практике при работе с H2 и Hibernate часто допустимо сохранять сущности с явно заданным `id` (как при CSV-предзаполнении). Однако в зависимости от диалекта и конфигурации возможно возникновение конфликтов генерации ключей или ошибок формата *"identity insert"*.
+
+Надёжный ("железобетонный") подход для production-сценариев — **не задавать `id` вручную (`setId(...)`)**, а сохранять сущности с автогенерацией идентификаторов и строить связи через полученные `id`, либо использовать естественные ключи (code/slug) при импорте данных.
+
+## Swagger / OpenAPI
+
+В каждом сервисе доступна документация Swagger UI (если включена в конфигурации):
+
+- Booking Service: `/swagger-ui/index.html`
+- Hotel Service: `/swagger-ui/index.html`
+
+## Локальная разработка
+
+Для локальной отладки используется H2 (in-memory).
+При необходимости можно включить H2 Console **только в dev-окружении**.
+
+> В production-окружении H2 Console и dev-секреты JWT использовать нельзя.
+
+## Сборка
+
+Полная сборка проекта:
+
 ```bash
-mvn test
+./mvnw clean package
 ```
 
-Troubleshooting
+Сборка отдельного модуля:
 
-Порт занят → поменяйте порт в src/main/resources/application.yml:
-
-```yaml
-server:
-  port: 8050
+```bash
+./mvnw -pl booking-service -am clean package
 ```
-
-Swagger UI не открывается → убедитесь, что сервис запущен и переходите на /swagger-ui (без /index.html).
