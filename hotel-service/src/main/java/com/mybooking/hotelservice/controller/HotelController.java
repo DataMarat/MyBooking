@@ -8,6 +8,7 @@ import com.mybooking.hotelservice.model.Room;
 import com.mybooking.hotelservice.service.HotelService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -64,6 +65,7 @@ public class HotelController {
      * @return сохранённый отель
      */
     @PostMapping
+    @PreAuthorize("hasAuthority('SCOPE_ADMIN')")
     public Hotel saveHotel(@RequestBody Hotel hotel) {
         return hotelService.saveHotel(hotel);
     }
@@ -74,6 +76,7 @@ public class HotelController {
      * @param id идентификатор отеля
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('SCOPE_ADMIN')")
     public void deleteHotel(@PathVariable Long id) {
         hotelService.deleteHotel(id);
     }

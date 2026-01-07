@@ -2,6 +2,7 @@ package com.mybooking.hotelservice.controller;
 
 import com.mybooking.hotelservice.model.Room;
 import com.mybooking.hotelservice.repository.RoomRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,6 +35,7 @@ public class StatsController {
      * @return карта со статистическими показателями
      */
     @GetMapping
+    @PreAuthorize("hasAuthority('SCOPE_ADMIN')")
     public Map<String, Object> stats() {
         List<Room> rooms = roomRepository.findAll();
 

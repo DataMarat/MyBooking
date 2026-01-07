@@ -5,7 +5,7 @@ import com.mybooking.bookingservice.model.Booking;
 import com.mybooking.bookingservice.repository.BookingRepository;
 import com.mybooking.bookingservice.service.BookingService;
 import org.slf4j.MDC;
-import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
@@ -87,11 +87,8 @@ public class BookingController {
      *
      * @return список всех бронирований
      */
-    public List<Booking> all(@AuthenticationPrincipal Jwt jwt) {
-        String scope = jwt.getClaimAsString("scope");
-        if (!"ADMIN".equals(scope)) {
-            throw new org.springframework.security.access.AccessDeniedException("Forbidden");
-        }
+    @PreAuthorize("hasAuthority('SCOPE_ADMIN')")
+    public List<Booking> all() {
         return bookingRepository.findAll();
     }
 }
