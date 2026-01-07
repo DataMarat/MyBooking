@@ -19,11 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Smoke-тест для WireMock в booking-service.
  *
- * <p>Проверяет, что WireMock стартует на случайном порту и доступен по HTTP.
- * Также здесь задаём hotel.base-url через {@link DynamicPropertySource} — это будет использоваться
- * в следующих интеграционных тестах саги.</p>
+ * <p>Важно: webEnvironment=MOCK, чтобы был servlet-контекст и Spring Security создал HttpSecurity,
+ * иначе SecurityConfig#filterChain(HttpSecurity) не соберётся.</p>
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 class WireMockSmokeIntegrationTests {
 
     private static final WireMockServer WIREMOCK = new WireMockServer(wireMockConfig().dynamicPort());
@@ -42,7 +41,7 @@ class WireMockSmokeIntegrationTests {
     @DynamicPropertySource
     static void overrideProps(DynamicPropertyRegistry r) {
         r.add("hotel.base-url", () -> "http://localhost:" + WIREMOCK.port());
-        // значения ниже — чтобы контекст гарантированно поднялся даже если @Value обязательные
+        // на случай если эти пропсы обязательны в @ConfigurationProperties/@Value:
         r.add("hotel.timeout-ms", () -> "800");
         r.add("hotel.retries", () -> "1");
     }
