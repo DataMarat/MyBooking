@@ -34,5 +34,3 @@ public class OpenApiConfig {
                 .info(new Info().title("Booking Service API").version("v1"));
     }
 }
-
-

@@ -18,5 +18,3 @@ final class JwtSecretKeyProvider {
         return new SecretKeySpec(keyBytes, "HmacSHA256");
     }
 }
-
-

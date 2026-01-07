@@ -74,5 +74,3 @@ public class UserAdminController {
         return ResponseEntity.noContent().build();
     }
 }
-
-

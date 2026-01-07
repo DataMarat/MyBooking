@@ -4,7 +4,6 @@ import com.mybooking.hotelservice.dto.HotelDetailsDto;
 import com.mybooking.hotelservice.dto.HotelListDto;
 import com.mybooking.hotelservice.dto.RoomDto;
 import com.mybooking.hotelservice.model.Hotel;
-import com.mybooking.hotelservice.model.Room;
 import com.mybooking.hotelservice.service.HotelService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
