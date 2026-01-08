@@ -11,9 +11,18 @@ import java.time.LocalDate;
  * идемпотентность операций на уровне базы данных.</p>
  */
 @Entity
-@Table(uniqueConstraints = {
-        @UniqueConstraint(name = "uk_lock_request", columnNames = {"requestId"})
-})
+@Table(
+        name = "room_reservation_lock",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_lock_request", columnNames = {"request_id"})
+        },
+        indexes = {
+                @Index(
+                        name = "idx_lock_room_dates",
+                        columnList = "room_id, start_date, end_date"
+                )
+        }
+)
 public class RoomReservationLock {
 
     @Id

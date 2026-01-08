@@ -13,7 +13,21 @@ import java.time.OffsetDateTime;
 
 
 @Entity
-@Table(uniqueConstraints = @UniqueConstraint(name = "uk_booking_request", columnNames = {"requestId"}))
+@Table(
+        name = "bookings",
+        indexes = {
+                @Index(name = "idx_booking_user_id", columnList = "user_id"),
+                @Index(name = "idx_booking_room_id", columnList = "room_id"),
+                @Index(name = "idx_booking_status", columnList = "status"),
+                @Index(name = "idx_booking_dates", columnList = "start_date, end_date")
+        },
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_booking_request",
+                        columnNames = {"request_id"}
+                )
+        }
+)
 public class Booking {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
